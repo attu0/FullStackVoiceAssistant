@@ -1,7 +1,6 @@
-// src/components/Recorder.jsx
 import React, { useRef, useState } from 'react';
 import { useModel } from '../context/ModelContext';
-import axios from 'axios';
+import { sendAudioToAssistant } from '../api/assistantApi';
 import './Recorder.css';
 
 const Recorder = ({ onResponse }) => {
@@ -10,34 +9,34 @@ const Recorder = ({ onResponse }) => {
   const { selectedSTT, selectedTTS, selectedLLM } = useModel();
 
   const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    const chunks = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
 
-    recorder.ondataavailable = (e) => chunks.push(e.data);
-    recorder.onstop = async () => {
-      const blob = new Blob(chunks, { type: 'audio/webm' });
-      const formData = new FormData();
-      formData.append('audio_file', blob);
-      formData.append('stt_model', selectedSTT);
-      formData.append('tts_model', selectedTTS);
-      formData.append('llm', selectedLLM);
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
 
-      try {
-        const res = await axios.post('http://localhost:8000/assistant', formData, {
-          responseType: 'blob',
-        });
-        const transcript = res.headers['x-transcript'];
-        const audioUrl = URL.createObjectURL(res.data);
-        onResponse({ transcript, audioUrl });
-      } catch (err) {
-        console.error('Error:', err);
-      }
-    };
+        try {
+          const { transcript, audioUrl } = await sendAudioToAssistant(
+            blob,
+            selectedSTT,
+            selectedTTS,
+            selectedLLM
+          );
+          onResponse({ transcript, audioUrl });
+        } catch (err) {
+          console.error('Error sending audio:', err);
+        }
+      };
 
-    recorder.start();
-    mediaRecorderRef.current = recorder;
-    setIsRecording(true);
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone access denied or error:', err);
+    }
   };
 
   const stopRecording = () => {
@@ -47,7 +46,10 @@ const Recorder = ({ onResponse }) => {
 
   return (
     <div className="recorder">
-      <button className={`record-btn ${isRecording ? 'recording' : ''}`} onClick={isRecording ? stopRecording : startRecording}>
+      <button
+        className={`record-btn ${isRecording ? 'recording' : ''}`}
+        onClick={isRecording ? stopRecording : startRecording}
+      >
         {isRecording ? '🛑 Stop Recording' : '🎙 Start Recording'}
       </button>
     </div>

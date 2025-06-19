@@ -3,7 +3,7 @@ import { useModel } from '../context/ModelContext';
 import { sendAudioToAssistant } from '../api/assistantApi';
 import './Recorder.css';
 
-const Recorder = ({ onResponse }) => {
+const Recorder = ({ onConversation }) => {
   const mediaRecorderRef = useRef(null);
   const [isRecording, setIsRecording] = useState(false);
   const { selectedSTT, selectedTTS, selectedLLM } = useModel();
@@ -15,19 +15,24 @@ const Recorder = ({ onResponse }) => {
       const chunks = [];
 
       recorder.ondataavailable = (e) => chunks.push(e.data);
+
       recorder.onstop = async () => {
         const blob = new Blob(chunks, { type: 'audio/webm' });
 
         try {
-          const { transcript, audioUrl } = await sendAudioToAssistant(
+          const { transcript, llmResponse, audioUrl } = await sendAudioToAssistant(
             blob,
             selectedSTT,
             selectedTTS,
             selectedLLM
           );
-          onResponse({ transcript, audioUrl });
+
+          console.log("🧍 User Transcript:", transcript);
+          console.log("🤖 AI Response:", llmResponse);
+          onConversation(transcript, llmResponse, audioUrl);
+
         } catch (err) {
-          console.error('Error sending audio:', err);
+          console.error('❌ Error sending audio:', err);
         }
       };
 
@@ -35,7 +40,7 @@ const Recorder = ({ onResponse }) => {
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
     } catch (err) {
-      console.error('Microphone access denied or error:', err);
+      console.error('🎤 Microphone error:', err);
     }
   };
 
@@ -50,7 +55,7 @@ const Recorder = ({ onResponse }) => {
         className={`record-btn ${isRecording ? 'recording' : ''}`}
         onClick={isRecording ? stopRecording : startRecording}
       >
-        {isRecording ? '🛑 Stop Recording' : '🎙 Start Recording'}
+        {isRecording ? '🛑 Stop Recording' : '🎙 Start Talking'}
       </button>
     </div>
   );

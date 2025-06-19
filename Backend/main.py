@@ -1,56 +1,63 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from models.stt.stt_handler import transcribe_audio
-from models.llm.llm_handler import call_llm
-from models.tts.tts_handler import synthesize_speech
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 import os
+from models.stt.stt_handler import transcribe_audio
+from models.llm.llm_handler import generate_response
+from models.tts.tts_handler import tts_generate
 
 load_dotenv()
 
 app = FastAPI()
 
-# CORS setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow any origin for now, restrict in prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Transcript", "X-Response"]  # 🔥 Needed for frontend to access
 )
 
-@app.get("/")
-def root():
-    return {"message": "AI Voice Assistant Backend is running."}
+chat_history = [
+    {
+        "role": "system",
+        "content": "You are Cogni, a calm and caring voice assistant for mental wellness. Always respond in 1–2 short sentences. Be soothing, supportive, and concise."
+    }
+]
 
-
-@app.post("/pipeline/")
-async def full_pipeline(
+@app.post("/assistant")
+async def assistant(
     audio: UploadFile = File(...),
-    stt_model: str = Form(None),
-    tts_model: str = Form(None),
-    llm: str = Form(None),
+    stt_model: str = Form("deepgram"),
+    tts_model: str = Form("deepgram"),
+    llm: str = Form("groq")
 ):
-    stt_model = stt_model or os.getenv("DEFAULT_STT_MODEL", "whisper")
-    tts_model = tts_model or os.getenv("DEFAULT_TTS_MODEL", "gtts")
-    llm = llm or os.getenv("DEFAULT_LLM", "openai")
-
-    # Save uploaded file
-    audio_path = f"temp_input_{audio.filename}"
-    with open(audio_path, "wb") as f:
+    input_path = "input.wav"
+    with open(input_path, "wb") as f:
         f.write(await audio.read())
 
-    # STT
-    transcribed_text = transcribe_audio(stt_model, audio_path)
+    os.environ["DEFAULT_STT_MODEL"] = stt_model
+    os.environ["DEFAULT_TTS_MODEL"] = tts_model
+    os.environ["DEFAULT_LLM"] = llm
 
-    # LLM
-    response = call_llm(llm, transcribed_text)
+    transcript = transcribe_audio(input_path)
+    if not transcript:
+        return {"error": "No speech detected."}
 
-    # TTS
-    output_audio_path = synthesize_speech(tts_model, response)
+    chat_history.append({"role": "user", "content": transcript})
+    response = generate_response(chat_history)
+    chat_history.append({"role": "assistant", "content": response})
 
-    return {
-        "transcription": transcribed_text,
-        "response": response,
-        "audio_file": output_audio_path,
-    }
+    output_path = tts_generate(response)
+
+    return FileResponse(
+        output_path,
+        media_type="audio/wav",
+        filename="response.wav",
+        headers={
+            "X-Transcript": transcript,
+            "X-Response": response
+        }
+    )
